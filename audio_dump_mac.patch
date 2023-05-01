@@ -64,7 +64,7 @@ index 3fe724bf8..a9553779a 100644
  
  	if (resize)
 diff --git a/plugins/mac-capture/mac-audio.c b/plugins/mac-capture/mac-audio.c
-index e8a066162..56b9a5da1 100644
+index e8a066162..f32b483d8 100644
 --- a/plugins/mac-capture/mac-audio.c
 +++ b/plugins/mac-capture/mac-audio.c
 @@ -12,6 +12,8 @@
@@ -76,13 +76,16 @@ index e8a066162..56b9a5da1 100644
  #define PROPERTY_DEFAULT_DEVICE kAudioHardwarePropertyDefaultInputDevice
  #define PROPERTY_FORMATS kAudioStreamPropertyAvailablePhysicalFormats
  
-@@ -32,6 +34,23 @@
+@@ -32,6 +34,26 @@
  #define TEXT_DEVICE obs_module_text("CoreAudio.Device")
  #define TEXT_DEVICE_DEFAULT obs_module_text("CoreAudio.Device.Default")
  
 +// DUMP用のディレクトリ作成用　
 +#define MKDIR(name) mkdir(name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)
 +FILE *fp;
++
++// ダンプ用ファイルのopen/closeが重複呼び出しを防ぐため
++bool isOpenDumpFile = false; 
 +
 +// ダンプのディレクトリとファイル名の定義
 +#define DUMP_DIR_NAME  			("DUMP")
@@ -100,7 +103,7 @@ index e8a066162..56b9a5da1 100644
  struct coreaudio_data {
  	char *device_name;
  	char *device_uid;
-@@ -56,6 +75,99 @@ struct coreaudio_data {
+@@ -56,6 +78,99 @@ struct coreaudio_data {
  	obs_source_t *source;
  };
  
@@ -200,7 +203,7 @@ index e8a066162..56b9a5da1 100644
  static bool get_default_output_device(struct coreaudio_data *ca)
  {
  	struct device_list list;
-@@ -336,7 +448,7 @@ static OSStatus input_callback(void *data,
+@@ -336,7 +451,7 @@ static OSStatus input_callback(void *data,
  	struct coreaudio_data *ca = data;
  	OSStatus stat;
  	struct obs_source_audio audio;
@@ -209,7 +212,7 @@ index e8a066162..56b9a5da1 100644
  	stat = AudioUnitRender(ca->unit, action_flags, ts_data, bus_num, frames,
  			       ca->buf_list);
  	if (!ca_success(stat, ca, "input_callback", "audio retrieval"))
-@@ -344,6 +456,16 @@ static OSStatus input_callback(void *data,
+@@ -344,6 +459,16 @@ static OSStatus input_callback(void *data,
  
  	for (UInt32 i = 0; i < ca->buf_list->mNumberBuffers; i++)
  		audio.data[i] = ca->buf_list->mBuffers[i].mData;
@@ -226,7 +229,7 @@ index e8a066162..56b9a5da1 100644
  
  	audio.frames = frames;
  	audio.speakers = ca->speakers;
-@@ -547,6 +669,16 @@ static bool coreaudio_start(struct coreaudio_data *ca)
+@@ -547,6 +672,25 @@ static bool coreaudio_start(struct coreaudio_data *ca)
  {
  	OSStatus stat;
  
@@ -234,25 +237,49 @@ index e8a066162..56b9a5da1 100644
 +    char base_name[DUMP_FILE_NAME_SIZE]; 
 +    sprintf(base_name, "%s/%s", DUMP_DIR_NAME, DUMP_FILE_NAME);
 +
-+    bool ret = open_file(base_name, &fp);
-+    if (!ret)
-+    {
-+        printf("open file: fail\n");
-+    }
++	if (!isOpenDumpFile)
++	{
++    	bool ret = open_file(base_name, &fp);
++    	if (!ret)
++    	{
++			// open fail
++    	    printf("open file: fail\n");
++    	}
++		else
++		{
++			// open success
++			isOpenDumpFile = true;
++		}
++	}
 +	
  	if (ca->active)
  		return true;
  
-@@ -558,6 +690,12 @@ static void coreaudio_stop(struct coreaudio_data *ca)
+@@ -558,11 +702,27 @@ static void coreaudio_stop(struct coreaudio_data *ca)
  {
  	OSStatus stat;
  
-+    bool ret = close_file(&fp);
-+    if (!ret)
-+    {
-+        printf("close file: fail\n");
-+    }
++	if (isOpenDumpFile)
++	{
++    	bool ret = close_file(&fp);
++    	if (!ret)
++    	{
++			// close fail
++    	    printf("close file: fail\n");
++    	}
++		else
++		{
++			// close success
++			isOpenDumpFile = false;
++		}
++	}
 +
  	if (!ca->active)
  		return;
  
+ 	ca->active = false;
+ 
++
+ 	stat = AudioOutputUnitStop(ca->unit);
+ 	ca_success(stat, ca, "coreaudio_stop", "stop audio");
+ }
